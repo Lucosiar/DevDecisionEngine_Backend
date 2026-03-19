@@ -111,6 +111,41 @@ To allow production frontend(s), set one or both environment variables:
 - `FRONTEND_URL=https://your-frontend.example.com`
 - `CORS_ORIGINS=https://your-frontend.example.com,https://another.example.com`
 
+## Analyze endpoint (AI)
+
+`POST /analyze`
+
+Request body:
+
+```json
+{
+  "error": "TypeError: Cannot read property 'map' of undefined",
+  "repositoryUrl": "https://github.com/Lucosiar/DevDecisionEngine_Demo.git"
+}
+```
+
+- `repositoryUrl` is optional. If omitted, backend uses:
+  - `ANALYZE_REPOSITORY_URL` env var
+  - or default `https://github.com/Lucosiar/DevDecisionEngine_Demo.git`
+
+Response shape is always:
+
+```json
+{
+  "problem": "string",
+  "cause": "string",
+  "impact": "string",
+  "priority": "HIGH | MEDIUM | LOW",
+  "solution": "string"
+}
+```
+
+Environment variables for AI integration:
+
+- `OPENAI_API_KEY` (required to enable AI analysis)
+- `OPENAI_MODEL` (optional, default: `gpt-4.1-mini`)
+- `ANALYZE_REPOSITORY_URL` (optional default repo URL)
+
 ## Compile and run the project
 
 ```bash

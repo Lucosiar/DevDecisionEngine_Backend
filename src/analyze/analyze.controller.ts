@@ -9,7 +9,7 @@ export class AnalyzeController {
 
   @Post()
   @HttpCode(200)
-  analyze(@Body() payload: AnalyzeRequestDto): AnalyzeResponse {
-    return this.analyzeService.analyzeError(payload.error);
+  analyze(@Body() payload: AnalyzeRequestDto): Promise<AnalyzeResponse> {
+    return this.analyzeService.analyzeError(payload.error, payload.repositoryUrl);
   }
 }
