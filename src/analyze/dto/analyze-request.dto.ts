@@ -1,4 +1,4 @@
 export class AnalyzeRequestDto {
-  error: string;
+  error?: string;
   repositoryUrl?: string;
 }

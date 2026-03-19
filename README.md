@@ -105,6 +105,8 @@ The API enables CORS for local frontend by default:
 
 - `http://localhost:3000`
 - `http://127.0.0.1:3000`
+- `http://localhost:3001`
+- `http://127.0.0.1:3001`
 
 To allow production frontend(s), set one or both environment variables:
 
@@ -119,7 +121,6 @@ Request body:
 
 ```json
 {
-  "error": "TypeError: Cannot read property 'map' of undefined",
   "repositoryUrl": "https://github.com/Lucosiar/DevDecisionEngine_Demo.git"
 }
 ```
@@ -127,6 +128,11 @@ Request body:
 - `repositoryUrl` is optional. If omitted, backend uses:
   - `ANALYZE_REPOSITORY_URL` env var
   - or default `https://github.com/Lucosiar/DevDecisionEngine_Demo.git`
+- `error` is optional. If omitted, backend performs repository-level analysis.
+
+`GET /analyze/repositories`
+
+Returns repository options for frontend selector.
 
 Response shape is always:
 
@@ -145,6 +151,7 @@ Environment variables for AI integration:
 - `OPENAI_API_KEY` (required to enable AI analysis)
 - `OPENAI_MODEL` (optional, default: `gpt-4.1-mini`)
 - `ANALYZE_REPOSITORY_URL` (optional default repo URL)
+- `ANALYZE_REPOSITORIES` (optional repository catalog, comma-separated URLs)
 
 ## Compile and run the project
 

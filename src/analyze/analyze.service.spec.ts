@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
 import { AnalyzeService } from './analyze.service';
 import { RepositoryContextService } from './repository-context.service';
 import { AnalyzeAiService } from './analyze-ai.service';
@@ -53,9 +52,31 @@ describe('AnalyzeService', () => {
     expect(service).toBeDefined();
   });
 
+  it('returns repository list with default repository', () => {
+    const originalEnv = process.env.ANALYZE_REPOSITORIES;
+    process.env.ANALYZE_REPOSITORIES =
+      'https://github.com/Lucosiar/DevDecisionEngine_Backend.git';
+
+    const repositories = service.listRepositories();
+
+    process.env.ANALYZE_REPOSITORIES = originalEnv;
+
+    expect(repositories).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          url: 'https://github.com/Lucosiar/DevDecisionEngine_Backend.git',
+        }),
+        expect.objectContaining({
+          url: 'https://github.com/Lucosiar/DevDecisionEngine_Demo.git',
+        }),
+      ]),
+    );
+  });
+
   it('returns the AI analysis when integration is configured', async () => {
     const result = await service.analyzeError(
-      "TypeError: Cannot read property 'map' of undefined",
+      undefined,
+      'https://github.com/Lucosiar/DevDecisionEngine_Demo.git',
     );
 
     expect(repositoryContextService.loadContext).toHaveBeenCalledWith(
@@ -68,9 +89,7 @@ describe('AnalyzeService', () => {
   it('returns fallback when OpenAI is not configured', async () => {
     analyzeAiService.isConfigured.mockReturnValue(false);
 
-    const result = await service.analyzeError(
-      "TypeError: Cannot read property 'map' of undefined",
-    );
+    const result = await service.analyzeError(undefined);
 
     expect(repositoryContextService.loadContext).not.toHaveBeenCalled();
     expect(result).toEqual({
@@ -86,16 +105,8 @@ describe('AnalyzeService', () => {
   it('returns fallback when AI analysis fails', async () => {
     analyzeAiService.analyzeWithAi.mockRejectedValue(new Error('boom'));
 
-    const result = await service.analyzeError(
-      "TypeError: Cannot read property 'map' of undefined",
-    );
+    const result = await service.analyzeError(undefined);
 
     expect(result.priority).toBe('HIGH');
-  });
-
-  it('throws when error is empty', async () => {
-    await expect(service.analyzeError('   ')).rejects.toThrow(
-      BadRequestException,
-    );
   });
 });

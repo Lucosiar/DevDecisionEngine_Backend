@@ -4,7 +4,12 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  const localOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
+  const localOrigins = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3001',
+  ];
   const envOrigins = [
     process.env.FRONTEND_URL,
     ...(process.env.CORS_ORIGINS?.split(',') ?? []),

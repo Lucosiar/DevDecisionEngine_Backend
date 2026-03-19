@@ -27,7 +27,7 @@ describe('AppController (e2e)', () => {
     return request(app.getHttpServer())
       .post('/analyze')
       .send({
-        error: "TypeError: Cannot read property 'map' of undefined",
+        repositoryUrl: 'https://github.com/Lucosiar/DevDecisionEngine_Demo.git',
       })
       .expect(200)
       .expect({
@@ -40,10 +40,16 @@ describe('AppController (e2e)', () => {
       });
   });
 
-  it('/analyze (POST) validation', () => {
+  it('/analyze/repositories (GET)', () => {
     return request(app.getHttpServer())
-      .post('/analyze')
-      .send({ error: '' })
-      .expect(400);
+      .get('/analyze/repositories')
+      .expect(200)
+      .expect([
+        {
+          id: 'lucosiar-devdecisionengine-demo',
+          name: 'Lucosiar/DevDecisionEngine_Demo',
+          url: 'https://github.com/Lucosiar/DevDecisionEngine_Demo.git',
+        },
+      ]);
   });
 });
