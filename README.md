@@ -99,6 +99,18 @@ No somos otro copiloto.
 $ pnpm install
 ```
 
+## CORS configuration
+
+The API enables CORS for local frontend by default:
+
+- `http://localhost:3000`
+- `http://127.0.0.1:3000`
+
+To allow production frontend(s), set one or both environment variables:
+
+- `FRONTEND_URL=https://your-frontend.example.com`
+- `CORS_ORIGINS=https://your-frontend.example.com,https://another.example.com`
+
 ## Compile and run the project
 
 ```bash

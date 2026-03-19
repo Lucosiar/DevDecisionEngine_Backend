@@ -22,4 +22,28 @@ describe('AppController (e2e)', () => {
       .expect(200)
       .expect('Hello World!');
   });
+
+  it('/analyze (POST)', () => {
+    return request(app.getHttpServer())
+      .post('/analyze')
+      .send({
+        error: "TypeError: Cannot read property 'map' of undefined",
+      })
+      .expect(200)
+      .expect({
+        problem: 'Error al acceder a propiedad de un objeto undefined',
+        cause: 'El objeto no esta inicializado antes de usar .map()',
+        impact: 'Puede romper la UI y afectar a la experiencia de usuario',
+        priority: 'HIGH',
+        solution:
+          'Anadir validacion previa o valor por defecto antes de usar .map()',
+      });
+  });
+
+  it('/analyze (POST) validation', () => {
+    return request(app.getHttpServer())
+      .post('/analyze')
+      .send({ error: '' })
+      .expect(400);
+  });
 });
