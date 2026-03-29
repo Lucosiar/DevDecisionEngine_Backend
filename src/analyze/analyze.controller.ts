@@ -3,19 +3,35 @@ import { AnalyzeService } from './analyze.service';
 import { AnalyzeRequestDto } from './dto/analyze-request.dto';
 import type { AnalyzeResponse } from './interfaces/analyze-response.interface';
 import type { AnalyzeRepository } from './interfaces/analyze-repository.interface';
+import { GenerateIssueRequestDto } from './dto/generate-issue-request.dto';
+import type { GenerateIssueResponse } from './interfaces/generate-issue-response.interface';
 
-@Controller('analyze')
+@Controller()
 export class AnalyzeController {
   constructor(private readonly analyzeService: AnalyzeService) {}
 
-  @Get('repositories')
+  @Get('analyze/repositories')
   repositories(): AnalyzeRepository[] {
     return this.analyzeService.listRepositories();
   }
 
-  @Post()
+  @Post('analyze')
   @HttpCode(200)
   analyze(@Body() payload: AnalyzeRequestDto): Promise<AnalyzeResponse> {
-    return this.analyzeService.analyzeError(payload.error, payload.repositoryUrl);
+    return this.analyzeService.analyze(payload);
+  }
+
+  @Post('analyze/demo')
+  @HttpCode(200)
+  demo(): AnalyzeResponse[] {
+    return this.analyzeService.getDemoAnalyses();
+  }
+
+  @Post('generate-issue')
+  @HttpCode(200)
+  generateIssue(
+    @Body() payload: GenerateIssueRequestDto,
+  ): GenerateIssueResponse {
+    return this.analyzeService.generateIssue(payload);
   }
 }

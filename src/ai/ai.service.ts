@@ -2,12 +2,11 @@ import { Injectable } from '@nestjs/common';
 import {
   AnalyzePriority,
   AnalyzeResponse,
-} from './interfaces/analyze-response.interface';
+} from '../analyze/interfaces/analyze-response.interface';
 
-interface AnalyzeWithAiParams {
+interface AnalyzeErrorParams {
   error: string;
-  repositoryUrl: string;
-  repositoryContext: string;
+  repo?: string;
 }
 
 interface OpenAiChatCompletionResponse {
@@ -25,7 +24,7 @@ interface OpenAiChatCompletionResponse {
 }
 
 @Injectable()
-export class AnalyzeAiService {
+export class AiService {
   private readonly apiUrl = 'https://api.openai.com/v1/chat/completions';
   private readonly model = process.env.OPENAI_MODEL ?? 'gpt-4.1-mini';
 
@@ -33,7 +32,7 @@ export class AnalyzeAiService {
     return Boolean(process.env.OPENAI_API_KEY);
   }
 
-  async analyzeWithAi(params: AnalyzeWithAiParams): Promise<AnalyzeResponse> {
+  async analyzeError(params: AnalyzeErrorParams): Promise<AnalyzeResponse> {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error('OPENAI_API_KEY is required');
@@ -50,24 +49,14 @@ export class AnalyzeAiService {
         temperature: 0.2,
         messages: [
           {
-            role: 'system',
-            content:
-              'Eres un senior software engineer. Analiza el error y el contexto del repositorio. Responde SOLO JSON valido con: problem, cause, impact, priority, solution. priority debe ser HIGH, MEDIUM o LOW.',
-          },
-          {
             role: 'user',
-            content: `Repository URL: ${params.repositoryUrl}
-Error reportado:
-${params.error}
-
-Contexto del repositorio:
-${params.repositoryContext}`,
+            content: this.buildPrompt(params),
           },
         ],
         response_format: {
           type: 'json_schema',
           json_schema: {
-            name: 'analysis_response',
+            name: 'debug_analysis',
             strict: true,
             schema: {
               type: 'object',
@@ -81,8 +70,16 @@ ${params.repositoryContext}`,
                   enum: ['HIGH', 'MEDIUM', 'LOW'],
                 },
                 solution: { type: 'string' },
+                confidence: { type: 'number' },
               },
-              required: ['problem', 'cause', 'impact', 'priority', 'solution'],
+              required: [
+                'problem',
+                'cause',
+                'impact',
+                'priority',
+                'solution',
+                'confidence',
+              ],
             },
           },
         },
@@ -91,13 +88,10 @@ ${params.repositoryContext}`,
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(
-        `OpenAI request failed (${response.status}): ${errorText}`,
-      );
+      throw new Error(`OpenAI request failed (${response.status}): ${errorText}`);
     }
 
-    const payload =
-      (await response.json()) as OpenAiChatCompletionResponse;
+    const payload = (await response.json()) as OpenAiChatCompletionResponse;
     const rawContent = payload.choices?.[0]?.message?.content;
     const content = this.extractContent(rawContent);
 
@@ -105,8 +99,43 @@ ${params.repositoryContext}`,
       throw new Error('OpenAI returned an empty response');
     }
 
-    const parsed = JSON.parse(content) as unknown;
+    const parsed = this.safeParseJson(content);
     return this.validateAnalyzeResponse(parsed);
+  }
+
+  private buildPrompt(params: AnalyzeErrorParams): string {
+    const sections = [
+      'Eres un experto en debugging. Devuelve SOLO JSON valido con:',
+      '- problem',
+      '- cause',
+      '- impact',
+      '- priority (HIGH, MEDIUM, LOW)',
+      '- solution',
+      '- confidence (0-100)',
+      '',
+      'Analiza este error:',
+      params.error,
+    ];
+
+    if (params.repo) {
+      sections.push('', `Repositorio: ${params.repo}`);
+    }
+    return sections.join('\n');
+  }
+
+  private safeParseJson(content: string): unknown {
+    try {
+      return JSON.parse(content) as unknown;
+    } catch {
+      const firstBrace = content.indexOf('{');
+      const lastBrace = content.lastIndexOf('}');
+
+      if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+        throw new Error('OpenAI response is not valid JSON');
+      }
+
+      return JSON.parse(content.slice(firstBrace, lastBrace + 1)) as unknown;
+    }
   }
 
   private extractContent(
@@ -144,6 +173,7 @@ ${params.repositoryContext}`,
     const impact = this.readString(value.impact, 'impact');
     const solution = this.readString(value.solution, 'solution');
     const priority = this.readPriority(value.priority);
+    const confidence = this.readConfidence(value.confidence);
 
     return {
       problem,
@@ -151,6 +181,7 @@ ${params.repositoryContext}`,
       impact,
       priority,
       solution,
+      confidence,
     };
   }
 
@@ -168,6 +199,18 @@ ${params.repositoryContext}`,
     }
 
     throw new Error('Field "priority" must be HIGH, MEDIUM or LOW');
+  }
+
+  private readConfidence(value: unknown): number {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      throw new Error('Field "confidence" must be a number');
+    }
+
+    if (value < 0 || value > 100) {
+      throw new Error('Field "confidence" must be between 0 and 100');
+    }
+
+    return Math.round(value);
   }
 
   private isObject(value: unknown): value is Record<string, unknown> {

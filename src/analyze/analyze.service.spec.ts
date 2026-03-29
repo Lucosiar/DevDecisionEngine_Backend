@@ -1,16 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AnalyzeService } from './analyze.service';
+import { AiService } from '../ai/ai.service';
 import { RepositoryContextService } from './repository-context.service';
-import { AnalyzeAiService } from './analyze-ai.service';
 
 describe('AnalyzeService', () => {
   let service: AnalyzeService;
-  let repositoryContextService: {
-    loadContext: jest.Mock<Promise<string>, [string]>;
-  };
-  let analyzeAiService: {
+  let aiService: {
     isConfigured: jest.Mock<boolean, []>;
-    analyzeWithAi: jest.Mock;
+    analyzeError: jest.Mock;
+  };
+  let repositoryContextService: {
+    isRepositoryEmpty: jest.Mock<Promise<boolean>, [string]>;
   };
 
   const aiResponse = {
@@ -19,28 +19,29 @@ describe('AnalyzeService', () => {
     impact: 'impact',
     priority: 'HIGH' as const,
     solution: 'solution',
+    confidence: 93,
   };
 
   beforeEach(async () => {
-    repositoryContextService = {
-      loadContext: jest.fn().mockResolvedValue('repo context'),
+    aiService = {
+      isConfigured: jest.fn().mockReturnValue(true),
+      analyzeError: jest.fn().mockResolvedValue(aiResponse),
     };
 
-    analyzeAiService = {
-      isConfigured: jest.fn().mockReturnValue(true),
-      analyzeWithAi: jest.fn().mockResolvedValue(aiResponse),
+    repositoryContextService = {
+      isRepositoryEmpty: jest.fn().mockResolvedValue(false),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AnalyzeService,
         {
-          provide: RepositoryContextService,
-          useValue: repositoryContextService,
+          provide: AiService,
+          useValue: aiService,
         },
         {
-          provide: AnalyzeAiService,
-          useValue: analyzeAiService,
+          provide: RepositoryContextService,
+          useValue: repositoryContextService,
         },
       ],
     }).compile();
@@ -74,39 +75,69 @@ describe('AnalyzeService', () => {
   });
 
   it('returns the AI analysis when integration is configured', async () => {
-    const result = await service.analyzeError(
-      undefined,
-      'https://github.com/Lucosiar/DevDecisionEngine_Demo.git',
-    );
+    const result = await service.analyze({
+      repo: 'demo-repo',
+      error: 'TypeError: cannot read properties of undefined',
+    });
 
-    expect(repositoryContextService.loadContext).toHaveBeenCalledWith(
-      'https://github.com/Lucosiar/DevDecisionEngine_Demo.git',
-    );
-    expect(analyzeAiService.analyzeWithAi).toHaveBeenCalled();
+    expect(aiService.analyzeError).toHaveBeenCalledWith({
+      repo: 'demo-repo',
+      error: 'TypeError: cannot read properties of undefined',
+    });
     expect(result).toEqual(aiResponse);
   });
 
-  it('returns fallback when OpenAI is not configured', async () => {
-    analyzeAiService.isConfigured.mockReturnValue(false);
+  it('returns an explicit response when the repository is empty and there is no error', async () => {
+    repositoryContextService.isRepositoryEmpty.mockResolvedValue(true);
 
-    const result = await service.analyzeError(undefined);
+    const result = await service.analyze({
+      repo: 'https://github.com/example/empty-repo.git',
+    });
 
-    expect(repositoryContextService.loadContext).not.toHaveBeenCalled();
+    expect(repositoryContextService.isRepositoryEmpty).toHaveBeenCalledWith(
+      'https://github.com/example/empty-repo.git',
+    );
+    expect(aiService.analyzeError).not.toHaveBeenCalled();
     expect(result).toEqual({
-      problem: 'Error al acceder a propiedad de un objeto undefined',
-      cause: 'El objeto no esta inicializado antes de usar .map()',
-      impact: 'Puede romper la UI y afectar a la experiencia de usuario',
-      priority: 'HIGH',
+      problem: 'El repositorio esta vacio',
+      cause:
+        'GitHub indica que el repositorio no tiene archivos fuente ni una rama por defecto lista para analizar.',
+      impact:
+        'No se puede hacer un analisis tecnico del codigo porque actualmente no hay codigo que inspeccionar.',
+      priority: 'LOW',
       solution:
-        'Anadir validacion previa o valor por defecto antes de usar .map()',
+        'Sube contenido al repositorio https://github.com/example/empty-repo.git o proporciona un stacktrace real si quieres analizar un error concreto.',
+      confidence: 98,
     });
   });
 
+  it('returns fallback when OpenAI is not configured', async () => {
+    aiService.isConfigured.mockReturnValue(false);
+
+    const result = await service.analyze({});
+
+    expect(aiService.analyzeError).not.toHaveBeenCalled();
+    expect(result.priority).toBe('MEDIUM');
+    expect(result.confidence).toBe(35);
+  });
+
   it('returns fallback when AI analysis fails', async () => {
-    analyzeAiService.analyzeWithAi.mockRejectedValue(new Error('boom'));
+    aiService.analyzeError.mockRejectedValue(new Error('boom'));
 
-    const result = await service.analyzeError(undefined);
+    const result = await service.analyze({});
 
-    expect(result.priority).toBe('HIGH');
+    expect(result.priority).toBe('MEDIUM');
+    expect(result.confidence).toBe(35);
+  });
+
+  it('builds issue content', () => {
+    const result = service.generateIssue({
+      problem: 'Null pointer in dashboard',
+      cause: 'Missing guard clause',
+      solution: 'Validate the payload before rendering',
+    });
+
+    expect(result.title).toContain('Null pointer in dashboard');
+    expect(result.description).toContain('## Problem');
   });
 });

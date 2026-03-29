@@ -6,4 +6,5 @@ export interface AnalyzeResponse {
   impact: string;
   priority: AnalyzePriority;
   solution: string;
+  confidence: number;
 }

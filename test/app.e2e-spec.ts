@@ -27,16 +27,14 @@ describe('AppController (e2e)', () => {
     return request(app.getHttpServer())
       .post('/analyze')
       .send({
-        repositoryUrl: 'https://github.com/Lucosiar/DevDecisionEngine_Demo.git',
+        repo: 'demo-repo',
+        error: 'TypeError: Cannot read properties of undefined (reading "map")',
       })
       .expect(200)
-      .expect({
-        problem: 'Error al acceder a propiedad de un objeto undefined',
-        cause: 'El objeto no esta inicializado antes de usar .map()',
-        impact: 'Puede romper la UI y afectar a la experiencia de usuario',
-        priority: 'HIGH',
-        solution:
-          'Anadir validacion previa o valor por defecto antes de usar .map()',
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          priority: 'HIGH',
+        });
       });
   });
 
@@ -51,5 +49,41 @@ describe('AppController (e2e)', () => {
           url: 'https://github.com/Lucosiar/DevDecisionEngine_Demo.git',
         },
       ]);
+  });
+
+  it('/analyze/demo (POST)', () => {
+    return request(app.getHttpServer())
+      .post('/analyze/demo')
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toHaveLength(3);
+        expect(response.body[0]).toMatchObject({
+          priority: 'HIGH',
+        });
+      });
+  });
+
+  it('/generate-issue (POST)', () => {
+    return request(app.getHttpServer())
+      .post('/generate-issue')
+      .send({
+        problem: 'Null pointer in dashboard',
+        cause: 'Missing guard clause',
+        solution: 'Validate before rendering',
+      })
+      .expect(200)
+      .expect({
+        title: '[Dev Decision Engine] Null pointer in dashboard',
+        description: [
+          '## Problem',
+          'Null pointer in dashboard',
+          '',
+          '## Cause',
+          'Missing guard clause',
+          '',
+          '## Proposed Solution',
+          'Validate before rendering',
+        ].join('\n'),
+      });
   });
 });

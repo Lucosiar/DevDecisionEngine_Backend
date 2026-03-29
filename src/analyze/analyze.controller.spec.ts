@@ -14,6 +14,7 @@ describe('AnalyzeController', () => {
     impact: 'impact',
     priority: 'HIGH',
     solution: 'solution',
+    confidence: 91,
   };
   const mockRepositories: AnalyzeRepository[] = [
     {
@@ -22,6 +23,11 @@ describe('AnalyzeController', () => {
       url: 'https://github.com/Lucosiar/DevDecisionEngine_Demo.git',
     },
   ];
+  const mockDemoResponses: AnalyzeResponse[] = [mockResponse];
+  const mockIssue = {
+    title: '[Dev Decision Engine] problem',
+    description: 'issue description',
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -31,7 +37,9 @@ describe('AnalyzeController', () => {
           provide: AnalyzeService,
           useValue: {
             listRepositories: jest.fn().mockReturnValue(mockRepositories),
-            analyzeError: jest.fn().mockResolvedValue(mockResponse),
+            analyze: jest.fn().mockResolvedValue(mockResponse),
+            getDemoAnalyses: jest.fn().mockReturnValue(mockDemoResponses),
+            generateIssue: jest.fn().mockReturnValue(mockIssue),
           },
         },
       ],
@@ -55,14 +63,38 @@ describe('AnalyzeController', () => {
   });
 
   it('delegates analysis to the service', async () => {
-    const spy = jest.spyOn(service, 'analyzeError');
+    const spy = jest.spyOn(service, 'analyze');
     const payload = {
-      repositoryUrl: 'https://github.com/Lucosiar/DevDecisionEngine_Demo.git',
+      repo: 'demo-repo',
+      error: 'TypeError',
     };
 
     const response = await controller.analyze(payload);
 
-    expect(spy).toHaveBeenCalledWith(payload.error, payload.repositoryUrl);
+    expect(spy).toHaveBeenCalledWith(payload);
     expect(response).toEqual(mockResponse);
+  });
+
+  it('returns demo responses', () => {
+    const spy = jest.spyOn(service, 'getDemoAnalyses');
+
+    const response = controller.demo();
+
+    expect(spy).toHaveBeenCalled();
+    expect(response).toEqual(mockDemoResponses);
+  });
+
+  it('delegates issue generation to the service', () => {
+    const spy = jest.spyOn(service, 'generateIssue');
+    const payload = {
+      problem: 'problem',
+      cause: 'cause',
+      solution: 'solution',
+    };
+
+    const response = controller.generateIssue(payload);
+
+    expect(spy).toHaveBeenCalledWith(payload);
+    expect(response).toEqual(mockIssue);
   });
 });

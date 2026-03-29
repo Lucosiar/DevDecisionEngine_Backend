@@ -1,173 +1,98 @@
 import { Injectable } from '@nestjs/common';
 
 interface GithubRepositoryResponse {
-  default_branch?: string;
+  default_branch?: string | null;
 }
 
-interface GithubTreeItem {
-  path: string;
-  type: 'blob' | 'tree';
-  size?: number;
-}
-
-interface GithubTreeResponse {
-  tree: GithubTreeItem[];
+interface GithubContentItem {
+  name?: string;
+  path?: string;
+  type?: 'file' | 'dir' | 'symlink' | 'submodule';
 }
 
 @Injectable()
 export class RepositoryContextService {
-  private readonly maxCharsPerFile = 2500;
-  private readonly maxContextChars = 45000;
+  async isRepositoryEmpty(repositoryUrl: string): Promise<boolean> {
+    const coordinates = this.parseGithubRepository(repositoryUrl);
+    if (!coordinates) {
+      return false;
+    }
 
-  async loadContext(repositoryUrl: string): Promise<string> {
-    const { owner, repository } = this.parseGithubRepository(repositoryUrl);
-    const repositoryInfo = await this.fetchJson<GithubRepositoryResponse>(
-      `https://api.github.com/repos/${owner}/${repository}`,
+    const repositoryResponse = await fetch(
+      `https://api.github.com/repos/${coordinates.owner}/${coordinates.repository}`,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'DevDecisionEngine-Backend',
+        },
+      },
     );
 
-    const branch = repositoryInfo.default_branch ?? 'main';
-    const tree = await this.fetchJson<GithubTreeResponse>(
-      `https://api.github.com/repos/${owner}/${repository}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
+    if (!repositoryResponse.ok) {
+      throw new Error(`GitHub request failed (${repositoryResponse.status})`);
+    }
+
+    const repository =
+      (await repositoryResponse.json()) as GithubRepositoryResponse;
+
+    if (!repository.default_branch) {
+      return true;
+    }
+
+    const contentsResponse = await fetch(
+      `https://api.github.com/repos/${coordinates.owner}/${coordinates.repository}/contents?ref=${encodeURIComponent(repository.default_branch)}`,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'DevDecisionEngine-Backend',
+        },
+      },
     );
 
-    const candidateFiles = tree.tree.filter(
-      (item) =>
-        item.type === 'blob' && this.isAnalyzableFile(item.path, item.size),
-    );
+    if (contentsResponse.status === 404) {
+      return true;
+    }
 
-    let context = `Repository URL: ${repositoryUrl}
-Default branch: ${branch}
-Total analyzable files found: ${candidateFiles.length}
-Files in repository:
-${candidateFiles.map((file) => `- ${file.path}`).join('\n')}`;
+    if (!contentsResponse.ok) {
+      throw new Error(`GitHub contents request failed (${contentsResponse.status})`);
+    }
 
-    for (const file of candidateFiles) {
-      if (context.length >= this.maxContextChars) {
-        break;
+    const contents = (await contentsResponse.json()) as
+      | GithubContentItem[]
+      | GithubContentItem;
+
+    if (!Array.isArray(contents)) {
+      return false;
+    }
+
+    return contents.length === 0;
+  }
+
+  private parseGithubRepository(
+    repositoryUrl: string,
+  ): { owner: string; repository: string } | null {
+    try {
+      const parsed = new URL(repositoryUrl);
+      if (parsed.hostname !== 'github.com') {
+        return null;
       }
 
-      const encodedPath = file.path
+      const [owner, rawRepository] = parsed.pathname
         .split('/')
-        .map((segment) => encodeURIComponent(segment))
-        .join('/');
+        .filter((segment) => segment.length > 0);
 
-      const rawUrl = `https://raw.githubusercontent.com/${owner}/${repository}/${branch}/${encodedPath}`;
-      const content = await this.fetchText(rawUrl);
-
-      if (!content || content.includes('\u0000')) {
-        continue;
+      if (!owner || !rawRepository) {
+        return null;
       }
 
-      const normalizedContent = content.slice(0, this.maxCharsPerFile);
-      const block = `
-
-FILE: ${file.path}
-${normalizedContent}`;
-
-      if (context.length + block.length > this.maxContextChars) {
-        context += block.slice(0, this.maxContextChars - context.length);
-        break;
-      }
-
-      context += block;
+      return {
+        owner,
+        repository: rawRepository.endsWith('.git')
+          ? rawRepository.slice(0, -4)
+          : rawRepository,
+      };
+    } catch {
+      return null;
     }
-
-    return context;
-  }
-
-  private parseGithubRepository(repositoryUrl: string): {
-    owner: string;
-    repository: string;
-  } {
-    const parsedUrl = new URL(repositoryUrl);
-    if (parsedUrl.hostname !== 'github.com') {
-      throw new Error('Only github.com URLs are supported');
-    }
-
-    const [owner, rawRepository] = parsedUrl.pathname
-      .split('/')
-      .filter((segment) => segment.length > 0);
-
-    if (!owner || !rawRepository) {
-      throw new Error('Invalid GitHub repository URL');
-    }
-
-    const repository = rawRepository.endsWith('.git')
-      ? rawRepository.slice(0, -4)
-      : rawRepository;
-
-    return { owner, repository };
-  }
-
-  private isAnalyzableFile(path: string, size?: number): boolean {
-    if (size && size > 25000) {
-      return false;
-    }
-
-    const blockedPaths = [
-      '/node_modules/',
-      '/dist/',
-      '/build/',
-      '/coverage/',
-      '/.next/',
-      '/.git/',
-    ];
-
-    const normalizedPath = `/${path.toLowerCase()}/`;
-    if (blockedPaths.some((segment) => normalizedPath.includes(segment))) {
-      return false;
-    }
-
-    if (path.includes('.min.')) {
-      return false;
-    }
-
-    const allowedExtensions = [
-      '.ts',
-      '.tsx',
-      '.js',
-      '.jsx',
-      '.mjs',
-      '.cjs',
-      '.json',
-      '.md',
-      '.yml',
-      '.yaml',
-      '.sql',
-      '.env.example',
-    ];
-
-    return allowedExtensions.some((extension) =>
-      path.toLowerCase().endsWith(extension),
-    );
-  }
-
-  private async fetchJson<T>(url: string): Promise<T> {
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'DevDecisionEngine-Backend',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`GitHub request failed (${response.status}) for ${url}`);
-    }
-
-    return (await response.json()) as T;
-  }
-
-  private async fetchText(url: string): Promise<string> {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'DevDecisionEngine-Backend',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`GitHub raw file request failed (${response.status})`);
-    }
-
-    return response.text();
   }
 }
