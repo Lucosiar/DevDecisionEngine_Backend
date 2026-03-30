@@ -1,7 +1,10 @@
 import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import { AnalyzeService } from './analyze.service';
 import { AnalyzeRequestDto } from './dto/analyze-request.dto';
-import type { AnalyzeResponse } from './interfaces/analyze-response.interface';
+import type {
+  AnalyzeFinding,
+  AnalyzeResponse,
+} from './interfaces/analyze-response.interface';
 import type { AnalyzeRepository } from './interfaces/analyze-repository.interface';
 import { GenerateIssueRequestDto } from './dto/generate-issue-request.dto';
 import type { GenerateIssueResponse } from './interfaces/generate-issue-response.interface';
@@ -23,7 +26,7 @@ export class AnalyzeController {
 
   @Post('analyze/demo')
   @HttpCode(200)
-  demo(): AnalyzeResponse[] {
+  demo(): AnalyzeFinding[] {
     return this.analyzeService.getDemoAnalyses();
   }
 

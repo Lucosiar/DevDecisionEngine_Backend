@@ -1,20 +1,29 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AnalyzeController } from './analyze.controller';
 import { AnalyzeService } from './analyze.service';
-import { AnalyzeResponse } from './interfaces/analyze-response.interface';
+import {
+  AnalyzeFinding,
+  AnalyzeResponse,
+} from './interfaces/analyze-response.interface';
 import { AnalyzeRepository } from './interfaces/analyze-repository.interface';
 
 describe('AnalyzeController', () => {
   let controller: AnalyzeController;
   let service: AnalyzeService;
 
-  const mockResponse: AnalyzeResponse = {
+  const mockFinding: AnalyzeFinding = {
     problem: 'problem',
     cause: 'cause',
     impact: 'impact',
     priority: 'HIGH',
     solution: 'solution',
     confidence: 91,
+  };
+  const mockResponse: AnalyzeResponse = {
+    ...mockFinding,
+    summary: 'summary',
+    findings: [mockFinding],
+    mode: 'error',
   };
   const mockRepositories: AnalyzeRepository[] = [
     {
@@ -23,7 +32,7 @@ describe('AnalyzeController', () => {
       url: 'https://github.com/Lucosiar/DevDecisionEngine_Demo.git',
     },
   ];
-  const mockDemoResponses: AnalyzeResponse[] = [mockResponse];
+  const mockDemoResponses: AnalyzeFinding[] = [mockFinding];
   const mockIssue = {
     title: '[Dev Decision Engine] problem',
     description: 'issue description',

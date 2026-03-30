@@ -11,15 +11,20 @@ describe('AnalyzeService', () => {
   };
   let repositoryContextService: {
     isRepositoryEmpty: jest.Mock<Promise<boolean>, [string]>;
+    buildAnalysisContext: jest.Mock<Promise<string>, [string]>;
   };
 
-  const aiResponse = {
+  const aiFinding = {
     problem: 'problem',
     cause: 'cause',
     impact: 'impact',
     priority: 'HIGH' as const,
     solution: 'solution',
     confidence: 93,
+  };
+  const aiResponse = {
+    summary: 'summary',
+    findings: [aiFinding],
   };
 
   beforeEach(async () => {
@@ -30,6 +35,7 @@ describe('AnalyzeService', () => {
 
     repositoryContextService = {
       isRepositoryEmpty: jest.fn().mockResolvedValue(false),
+      buildAnalysisContext: jest.fn().mockResolvedValue('repo context'),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -83,8 +89,16 @@ describe('AnalyzeService', () => {
     expect(aiService.analyzeError).toHaveBeenCalledWith({
       repo: 'demo-repo',
       error: 'TypeError: cannot read properties of undefined',
+      repositoryContext: '',
+      analysisMode: 'error',
+      maxFindings: 1,
     });
-    expect(result).toEqual(aiResponse);
+    expect(result).toEqual({
+      ...aiFinding,
+      summary: 'summary',
+      findings: [aiFinding],
+      mode: 'error',
+    });
   });
 
   it('returns an explicit response when the repository is empty and there is no error', async () => {
@@ -108,7 +122,57 @@ describe('AnalyzeService', () => {
       solution:
         'Sube contenido al repositorio https://github.com/example/empty-repo.git o proporciona un stacktrace real si quieres analizar un error concreto.',
       confidence: 98,
+      summary: 'El repositorio seleccionado no contiene codigo para inspeccionar.',
+      findings: [
+        {
+          problem: 'El repositorio esta vacio',
+          cause:
+            'GitHub indica que el repositorio no tiene archivos fuente ni una rama por defecto lista para analizar.',
+          impact:
+            'No se puede hacer un analisis tecnico del codigo porque actualmente no hay codigo que inspeccionar.',
+          priority: 'LOW',
+          solution:
+            'Sube contenido al repositorio https://github.com/example/empty-repo.git o proporciona un stacktrace real si quieres analizar un error concreto.',
+          confidence: 98,
+        },
+      ],
+      mode: 'repository',
     });
+  });
+
+  it('analyzes repository context and allows multiple findings when the error is empty', async () => {
+    aiService.analyzeError.mockResolvedValue({
+      summary: 'Se detectaron multiples hallazgos',
+      findings: [
+        aiFinding,
+        {
+          problem: 'second problem',
+          cause: 'second cause',
+          impact: 'second impact',
+          priority: 'MEDIUM' as const,
+          solution: 'second solution',
+          confidence: 81,
+        },
+      ],
+    });
+
+    const result = await service.analyze({
+      repositoryUrl: 'https://github.com/example/demo.git',
+    });
+
+    expect(repositoryContextService.buildAnalysisContext).toHaveBeenCalledWith(
+      'https://github.com/example/demo.git',
+    );
+    expect(aiService.analyzeError).toHaveBeenCalledWith({
+      error: undefined,
+      repo: 'https://github.com/example/demo.git',
+      repositoryContext: 'repo context',
+      analysisMode: 'repository',
+      maxFindings: 5,
+    });
+    expect(result.findings).toHaveLength(2);
+    expect(result.mode).toBe('repository');
+    expect(result.problem).toBe('problem');
   });
 
   it('returns fallback when OpenAI is not configured', async () => {
@@ -117,6 +181,7 @@ describe('AnalyzeService', () => {
     const result = await service.analyze({});
 
     expect(aiService.analyzeError).not.toHaveBeenCalled();
+    expect(result.mode).toBe('repository');
     expect(result.priority).toBe('MEDIUM');
     expect(result.confidence).toBe(35);
   });
@@ -126,6 +191,7 @@ describe('AnalyzeService', () => {
 
     const result = await service.analyze({});
 
+    expect(result.mode).toBe('repository');
     expect(result.priority).toBe('MEDIUM');
     expect(result.confidence).toBe(35);
   });

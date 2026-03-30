@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { AnalyzeResponse } from './interfaces/analyze-response.interface';
+import {
+  AnalyzeFinding,
+  AnalyzeResponse,
+} from './interfaces/analyze-response.interface';
 import { AiService } from '../ai/ai.service';
 import { AnalyzeRepository } from './interfaces/analyze-repository.interface';
 import { AnalyzeRequestDto } from './dto/analyze-request.dto';
@@ -12,8 +15,7 @@ export class AnalyzeService {
   private readonly defaultRepositoryUrl =
     process.env.ANALYZE_REPOSITORY_URL ??
     'https://github.com/Lucosiar/DevDecisionEngine_Demo.git';
-  private readonly repositoryAnalysisInstruction =
-    'No se proporciono stacktrace. Analiza el repositorio y describe el problema tecnico mas relevante o el siguiente paso recomendado.';
+  private readonly maxRepositoryFindings = 5;
 
   constructor(
     private readonly aiService: AiService,
@@ -30,7 +32,7 @@ export class AnalyzeService {
     return uniqueUrls.map((url) => this.buildRepository(url));
   }
 
-  getDemoAnalyses(): AnalyzeResponse[] {
+  getDemoAnalyses(): AnalyzeFinding[] {
     return [
       {
         problem: 'Null reference al renderizar la lista de usuarios',
@@ -69,6 +71,7 @@ export class AnalyzeService {
       payload.repositoryUrl?.trim() ||
       this.defaultRepositoryUrl;
     const hasReportedError = Boolean(normalizedError);
+    let repositoryContext = '';
 
     if (!hasReportedError) {
       try {
@@ -80,24 +83,36 @@ export class AnalyzeService {
         if (repositoryIsEmpty) {
           return this.buildEmptyRepositoryResponse(normalizedRepositoryUrl);
         }
+
+        repositoryContext =
+          await this.repositoryContextService.buildAnalysisContext(
+            normalizedRepositoryUrl,
+          );
       } catch {
         // If GitHub inspection fails, continue with the normal AI/fallback flow.
       }
     }
 
-    const promptInput = normalizedError || this.repositoryAnalysisInstruction;
-
     if (!this.aiService.isConfigured()) {
-      return this.buildFallbackResponse(promptInput, normalizedRepositoryUrl, hasReportedError);
+      return this.buildFallbackResponse(normalizedRepositoryUrl, hasReportedError);
     }
 
     try {
-      return await this.aiService.analyzeError({
-        error: promptInput,
+      const analysis = await this.aiService.analyzeError({
+        error: normalizedError,
         repo: normalizedRepositoryUrl,
+        repositoryContext,
+        analysisMode: hasReportedError ? 'error' : 'repository',
+        maxFindings: hasReportedError ? 1 : this.maxRepositoryFindings,
       });
+
+      return this.buildAnalyzeResponse(
+        analysis.summary,
+        analysis.findings,
+        hasReportedError ? 'error' : 'repository',
+      );
     } catch {
-      return this.buildFallbackResponse(promptInput, normalizedRepositoryUrl, hasReportedError);
+      return this.buildFallbackResponse(normalizedRepositoryUrl, hasReportedError);
     }
   }
 
@@ -131,50 +146,113 @@ export class AnalyzeService {
   }
 
   private buildFallbackResponse(
-    errorOrInstruction: string,
     repositoryUrl?: string,
     hasReportedError = true,
   ): AnalyzeResponse {
-    if (!hasReportedError) {
+    if (hasReportedError) {
+      return this.buildAnalyzeResponse(
+        'No se pudo validar el analisis asistido, asi que se devuelve un unico hallazgo generico basado en el error reportado.',
+        [
+          {
+            problem: 'Unhandled runtime error while processing application flow',
+            cause:
+              'The reported error suggests a missing null check or invalid state before using the failing value.',
+            impact:
+              repositoryUrl && repositoryUrl.length > 0
+                ? `The issue may block normal execution in the repository ${repositoryUrl}.`
+                : 'The issue may break the current feature flow and affect user experience.',
+            priority: 'HIGH',
+            solution:
+              'Add defensive validation around the failing object, reproduce the error locally, and cover the fix with a regression test.',
+            confidence: 65,
+          },
+        ],
+        'error',
+      );
+    }
+
+    return this.buildAnalyzeResponse(
+      'No se pudo completar el analisis automatico del repositorio sin stacktrace.',
+      [
+        {
+          problem: 'No se pudo inferir una lista fiable de errores del repositorio',
+          cause:
+            'No se recibio stacktrace y el analisis automatico del repositorio no produjo suficiente contexto fiable.',
+          impact:
+            'La respuesta puede ser demasiado generica para priorizar varias correcciones con confianza alta.',
+          priority: 'MEDIUM',
+          solution:
+            'Configura correctamente la integracion de IA o proporciona un stacktrace real para complementar el analisis automatico del repositorio.',
+          confidence: 35,
+        },
+      ],
+      'repository',
+    );
+  }
+
+  private buildAnalyzeResponse(
+    summary: string,
+    findings: AnalyzeFinding[],
+    mode: 'error' | 'repository',
+  ): AnalyzeResponse {
+    const normalizedFindings =
+      findings.length > 0 ? findings : [this.buildMissingFinding(mode)];
+    const primaryFinding = normalizedFindings[0];
+
+    return {
+      ...primaryFinding,
+      summary,
+      findings: normalizedFindings,
+      mode,
+    };
+  }
+
+  private buildMissingFinding(mode: 'error' | 'repository'): AnalyzeFinding {
+    if (mode === 'repository') {
       return {
-        problem: 'No se pudo inferir un problema concreto del repositorio',
+        problem: 'No se encontraron hallazgos concluyentes en el repositorio',
         cause:
-          'No se recibio stacktrace y el analisis automatico del repositorio no produjo suficiente contexto fiable.',
+          'El contexto inspeccionado no fue suficiente para aislar un error real con confianza aceptable.',
         impact:
-          'La respuesta puede ser demasiado generica para priorizar una accion tecnica con confianza alta.',
+          'Puede quedar algun fallo sin diagnosticar hasta contar con mas contexto o un stacktrace reproducible.',
         priority: 'MEDIUM',
         solution:
-          'Aporta un error real, un stacktrace o codigo relevante para obtener un diagnostico mas preciso.',
-        confidence: 35,
+          'Amplia el contexto analizado del repositorio o agrega un stacktrace para aumentar la precision del diagnostico.',
+        confidence: 30,
       };
     }
 
     return {
-      problem: 'Unhandled runtime error while processing application flow',
-      cause: `The reported error suggests a missing null check or invalid state before using the failing value. Original error: ${errorOrInstruction}`,
+      problem: 'No se encontro un hallazgo concluyente a partir del error reportado',
+      cause:
+        'La informacion entregada no permitio reconstruir una causa tecnica concreta con suficiente confianza.',
       impact:
-        repositoryUrl && repositoryUrl.length > 0
-          ? `The issue may block normal execution in the repository ${repositoryUrl}.`
-          : 'The issue may break the current feature flow and affect user experience.',
-      priority: 'HIGH',
+        'La correccion puede retrasarse hasta contar con un stacktrace mas completo o pasos de reproduccion.',
+      priority: 'MEDIUM',
       solution:
-        'Add defensive validation around the failing object, reproduce the error locally, and cover the fix with a regression test.',
-      confidence: 65,
+        'Comparte un stacktrace completo o codigo relacionado para mejorar el analisis.',
+      confidence: 30,
     };
   }
 
   private buildEmptyRepositoryResponse(repositoryUrl: string): AnalyzeResponse {
-    return {
-      problem: 'El repositorio esta vacio',
-      cause:
-        'GitHub indica que el repositorio no tiene archivos fuente ni una rama por defecto lista para analizar.',
-      impact:
-        'No se puede hacer un analisis tecnico del codigo porque actualmente no hay codigo que inspeccionar.',
-      priority: 'LOW',
-      solution:
-        `Sube contenido al repositorio ${repositoryUrl} o proporciona un stacktrace real si quieres analizar un error concreto.`,
-      confidence: 98,
-    };
+    return this.buildAnalyzeResponse(
+      'El repositorio seleccionado no contiene codigo para inspeccionar.',
+      [
+        {
+          problem: 'El repositorio esta vacio',
+          cause:
+            'GitHub indica que el repositorio no tiene archivos fuente ni una rama por defecto lista para analizar.',
+          impact:
+            'No se puede hacer un analisis tecnico del codigo porque actualmente no hay codigo que inspeccionar.',
+          priority: 'LOW',
+          solution:
+            `Sube contenido al repositorio ${repositoryUrl} o proporciona un stacktrace real si quieres analizar un error concreto.`,
+          confidence: 98,
+        },
+      ],
+      'repository',
+    );
   }
 
   private parseRepositoriesFromEnv(input?: string): string[] {

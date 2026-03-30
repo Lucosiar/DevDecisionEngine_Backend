@@ -1,12 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import {
   AnalyzePriority,
-  AnalyzeResponse,
+  AnalyzeFinding,
 } from '../analyze/interfaces/analyze-response.interface';
 
 interface AnalyzeErrorParams {
-  error: string;
+  error?: string;
   repo?: string;
+  repositoryContext?: string;
+  analysisMode: 'error' | 'repository';
+  maxFindings?: number;
+}
+
+interface AnalyzeAiResponse {
+  summary: string;
+  findings: AnalyzeFinding[];
 }
 
 interface OpenAiChatCompletionResponse {
@@ -32,11 +40,13 @@ export class AiService {
     return Boolean(process.env.OPENAI_API_KEY);
   }
 
-  async analyzeError(params: AnalyzeErrorParams): Promise<AnalyzeResponse> {
+  async analyzeError(params: AnalyzeErrorParams): Promise<AnalyzeAiResponse> {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       throw new Error('OPENAI_API_KEY is required');
     }
+
+    const maxFindings = this.clampFindings(params.maxFindings);
 
     const response = await fetch(this.apiUrl, {
       method: 'POST',
@@ -62,24 +72,37 @@ export class AiService {
               type: 'object',
               additionalProperties: false,
               properties: {
-                problem: { type: 'string' },
-                cause: { type: 'string' },
-                impact: { type: 'string' },
-                priority: {
-                  type: 'string',
-                  enum: ['HIGH', 'MEDIUM', 'LOW'],
+                summary: { type: 'string' },
+                findings: {
+                  type: 'array',
+                  minItems: 1,
+                  maxItems: maxFindings,
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      problem: { type: 'string' },
+                      cause: { type: 'string' },
+                      impact: { type: 'string' },
+                      priority: {
+                        type: 'string',
+                        enum: ['HIGH', 'MEDIUM', 'LOW'],
+                      },
+                      solution: { type: 'string' },
+                      confidence: { type: 'number' },
+                    },
+                    required: [
+                      'problem',
+                      'cause',
+                      'impact',
+                      'priority',
+                      'solution',
+                      'confidence',
+                    ],
+                  },
                 },
-                solution: { type: 'string' },
-                confidence: { type: 'number' },
               },
-              required: [
-                'problem',
-                'cause',
-                'impact',
-                'priority',
-                'solution',
-                'confidence',
-              ],
+              required: ['summary', 'findings'],
             },
           },
         },
@@ -104,8 +127,14 @@ export class AiService {
   }
 
   private buildPrompt(params: AnalyzeErrorParams): string {
+    const maxFindings = this.clampFindings(params.maxFindings);
     const sections = [
-      'Eres un experto en debugging. Devuelve SOLO JSON valido con:',
+      'Eres un experto en debugging y code review.',
+      'Devuelve SOLO JSON valido con:',
+      '- summary',
+      `- findings (array de 1 a ${maxFindings})`,
+      '',
+      'Cada finding debe incluir:',
       '- problem',
       '- cause',
       '- impact',
@@ -113,13 +142,28 @@ export class AiService {
       '- solution',
       '- confidence (0-100)',
       '',
-      'Analiza este error:',
-      params.error,
+      'Reglas:',
+      params.analysisMode === 'repository'
+        ? `- No hay stacktrace. Debes inspeccionar el repositorio y enumerar hasta ${maxFindings} errores o defectos concretos que ya se pueden inferir del codigo.`
+        : '- Usa el error reportado como senal principal y apoya el diagnostico con el contexto del repositorio si existe.',
+      '- Evita respuestas genericas del tipo "faltan logs" o "hay que investigar".',
+      '- No inventes hallazgos. Si solo ves 3 problemas fiables, devuelve 3.',
+      '- Prioriza fallos que rompen ejecucion, producen excepciones o resultados incorrectos.',
+      '- En solution describe la correccion tecnica directa.',
     ];
+
+    if (params.error) {
+      sections.push('', 'Error o stacktrace reportado:', params.error);
+    }
 
     if (params.repo) {
       sections.push('', `Repositorio: ${params.repo}`);
     }
+
+    if (params.repositoryContext) {
+      sections.push('', 'Contexto del repositorio:', params.repositoryContext);
+    }
+
     return sections.join('\n');
   }
 
@@ -163,25 +207,17 @@ export class AiService {
     return textParts.join('\n');
   }
 
-  private validateAnalyzeResponse(value: unknown): AnalyzeResponse {
+  private validateAnalyzeResponse(value: unknown): AnalyzeAiResponse {
     if (!this.isObject(value)) {
       throw new Error('Invalid JSON response from OpenAI');
     }
 
-    const problem = this.readString(value.problem, 'problem');
-    const cause = this.readString(value.cause, 'cause');
-    const impact = this.readString(value.impact, 'impact');
-    const solution = this.readString(value.solution, 'solution');
-    const priority = this.readPriority(value.priority);
-    const confidence = this.readConfidence(value.confidence);
+    const summary = this.readString(value.summary, 'summary');
+    const findings = this.readFindings(value.findings);
 
     return {
-      problem,
-      cause,
-      impact,
-      priority,
-      solution,
-      confidence,
+      summary,
+      findings,
     };
   }
 
@@ -211,6 +247,38 @@ export class AiService {
     }
 
     return Math.round(value);
+  }
+
+  private readFindings(value: unknown): AnalyzeFinding[] {
+    if (!Array.isArray(value) || value.length === 0) {
+      throw new Error('Field "findings" must be a non-empty array');
+    }
+
+    return value.map((finding, index) => {
+      if (!this.isObject(finding)) {
+        throw new Error(`Finding at index ${index} must be an object`);
+      }
+
+      return {
+        problem: this.readString(finding.problem, `findings[${index}].problem`),
+        cause: this.readString(finding.cause, `findings[${index}].cause`),
+        impact: this.readString(finding.impact, `findings[${index}].impact`),
+        priority: this.readPriority(finding.priority),
+        solution: this.readString(
+          finding.solution,
+          `findings[${index}].solution`,
+        ),
+        confidence: this.readConfidence(finding.confidence),
+      };
+    });
+  }
+
+  private clampFindings(value?: number): number {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      return 1;
+    }
+
+    return Math.max(1, Math.min(5, Math.trunc(value)));
   }
 
   private isObject(value: unknown): value is Record<string, unknown> {
