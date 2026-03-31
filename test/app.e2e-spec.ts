@@ -4,6 +4,11 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 
+interface AnalyzeAssertionBody {
+  priority: string;
+  nextAction: string;
+}
+
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
 
@@ -32,9 +37,7 @@ describe('AppController (e2e)', () => {
       })
       .expect(200)
       .expect((response) => {
-        expect(response.body).toMatchObject({
-          priority: 'HIGH',
-        });
+        expectAnalyzeBody(response.body);
       });
   });
 
@@ -56,10 +59,7 @@ describe('AppController (e2e)', () => {
       .post('/analyze/demo')
       .expect(200)
       .expect((response) => {
-        expect(response.body).toHaveLength(3);
-        expect(response.body[0]).toMatchObject({
-          priority: 'HIGH',
-        });
+        expectAnalyzeArrayBody(response.body);
       });
   });
 
@@ -70,6 +70,7 @@ describe('AppController (e2e)', () => {
         problem: 'Null pointer in dashboard',
         cause: 'Missing guard clause',
         solution: 'Validate before rendering',
+        nextAction: 'Create a failing test before applying the fix',
       })
       .expect(200)
       .expect({
@@ -83,7 +84,26 @@ describe('AppController (e2e)', () => {
           '',
           '## Proposed Solution',
           'Validate before rendering',
+          '',
+          '## Next Action',
+          'Create a failing test before applying the fix',
         ].join('\n'),
       });
   });
 });
+
+function expectAnalyzeBody(body: unknown): void {
+  const finding = body as Partial<AnalyzeAssertionBody>;
+
+  expect(finding.priority).toBe('HIGH');
+  expect(typeof finding.nextAction).toBe('string');
+}
+
+function expectAnalyzeArrayBody(body: unknown): void {
+  expect(Array.isArray(body)).toBe(true);
+
+  const findings = body as AnalyzeAssertionBody[];
+  expect(findings).toHaveLength(3);
+  expect(findings[0]?.priority).toBe('HIGH');
+  expect(typeof findings[0]?.nextAction).toBe('string');
+}

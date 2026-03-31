@@ -23,11 +23,13 @@ export class AnalyzeService {
   ) {}
 
   listRepositories(): AnalyzeRepository[] {
-    const fromEnv = this.parseRepositoriesFromEnv(process.env.ANALYZE_REPOSITORIES);
-    const allRepositoryUrls = [...fromEnv, this.defaultRepositoryUrl];
-    const uniqueUrls = [...new Set(allRepositoryUrls.map((url) => url.trim()))].filter(
-      (url) => url.length > 0,
+    const fromEnv = this.parseRepositoriesFromEnv(
+      process.env.ANALYZE_REPOSITORIES,
     );
+    const allRepositoryUrls = [...fromEnv, this.defaultRepositoryUrl];
+    const uniqueUrls = [
+      ...new Set(allRepositoryUrls.map((url) => url.trim())),
+    ].filter((url) => url.length > 0);
 
     return uniqueUrls.map((url) => this.buildRepository(url));
   }
@@ -36,29 +38,41 @@ export class AnalyzeService {
     return [
       {
         problem: 'Null reference al renderizar la lista de usuarios',
-        cause: 'La respuesta del API puede llegar vacia y el componente usa .map() sin validar',
-        impact: 'La pantalla principal falla al cargar y bloquea el flujo de soporte',
+        cause:
+          'La respuesta del API puede llegar vacia y el componente usa .map() sin validar',
+        impact:
+          'La pantalla principal falla al cargar y bloquea el flujo de soporte',
         priority: 'HIGH',
         solution:
           'Inicializar la coleccion con [] y anadir una guarda antes del renderizado',
+        nextAction:
+          'Reproducir el fallo con una respuesta vacia del API y aplicar una guarda antes de llamar a .map().',
         confidence: 95,
       },
       {
         problem: 'Timeout recurrente al consultar el servicio de pagos',
         cause: 'No existe retry ni timeout configurable en el cliente HTTP',
-        impact: 'Las operaciones tardan demasiado y aumentan los reintentos manuales',
+        impact:
+          'Las operaciones tardan demasiado y aumentan los reintentos manuales',
         priority: 'MEDIUM',
         solution:
           'Configurar timeout explicito, reintentos acotados y observabilidad de latencia',
+        nextAction:
+          'Revisar la configuracion del cliente HTTP y fijar un timeout maximo antes del siguiente despliegue.',
         confidence: 88,
       },
       {
-        problem: 'Migracion rompe compatibilidad con variables de entorno antiguas',
-        cause: 'El despliegue espera una clave nueva pero no hay valor por defecto ni validacion',
-        impact: 'El servicio puede arrancar con configuracion incompleta y fallar en runtime',
+        problem:
+          'Migracion rompe compatibilidad con variables de entorno antiguas',
+        cause:
+          'El despliegue espera una clave nueva pero no hay valor por defecto ni validacion',
+        impact:
+          'El servicio puede arrancar con configuracion incompleta y fallar en runtime',
         priority: 'LOW',
         solution:
           'Validar variables al iniciar y mantener compatibilidad temporal con el nombre anterior',
+        nextAction:
+          'Añadir validacion de variables al bootstrap y documentar el nombre antiguo y el nuevo en la migracion.',
         confidence: 84,
       },
     ];
@@ -94,7 +108,10 @@ export class AnalyzeService {
     }
 
     if (!this.aiService.isConfigured()) {
-      return this.buildFallbackResponse(normalizedRepositoryUrl, hasReportedError);
+      return this.buildFallbackResponse(
+        normalizedRepositoryUrl,
+        hasReportedError,
+      );
     }
 
     try {
@@ -112,7 +129,10 @@ export class AnalyzeService {
         hasReportedError ? 'error' : 'repository',
       );
     } catch {
-      return this.buildFallbackResponse(normalizedRepositoryUrl, hasReportedError);
+      return this.buildFallbackResponse(
+        normalizedRepositoryUrl,
+        hasReportedError,
+      );
     }
   }
 
@@ -129,6 +149,10 @@ export class AnalyzeService {
       payload.solution,
       'Implement the suggested fix and validate with regression tests.',
     );
+    const nextAction = this.normalizeIssueField(
+      payload.nextAction,
+      'Create an implementation task for the fix and validate it with a reproducible test case.',
+    );
 
     return {
       title: this.buildIssueTitle(problem),
@@ -141,6 +165,9 @@ export class AnalyzeService {
         '',
         '## Proposed Solution',
         solution,
+        '',
+        '## Next Action',
+        nextAction,
       ].join('\n'),
     };
   }
@@ -154,7 +181,8 @@ export class AnalyzeService {
         'No se pudo validar el analisis asistido, asi que se devuelve un unico hallazgo generico basado en el error reportado.',
         [
           {
-            problem: 'Unhandled runtime error while processing application flow',
+            problem:
+              'Unhandled runtime error while processing application flow',
             cause:
               'The reported error suggests a missing null check or invalid state before using the failing value.',
             impact:
@@ -164,6 +192,8 @@ export class AnalyzeService {
             priority: 'HIGH',
             solution:
               'Add defensive validation around the failing object, reproduce the error locally, and cover the fix with a regression test.',
+            nextAction:
+              'Reproduce the reported error in the affected flow and add a guard around the failing value before using it.',
             confidence: 65,
           },
         ],
@@ -175,7 +205,8 @@ export class AnalyzeService {
       'No se pudo completar el analisis automatico del repositorio sin stacktrace.',
       [
         {
-          problem: 'No se pudo inferir una lista fiable de errores del repositorio',
+          problem:
+            'No se pudo inferir una lista fiable de errores del repositorio',
           cause:
             'No se recibio stacktrace y el analisis automatico del repositorio no produjo suficiente contexto fiable.',
           impact:
@@ -183,6 +214,8 @@ export class AnalyzeService {
           priority: 'MEDIUM',
           solution:
             'Configura correctamente la integracion de IA o proporciona un stacktrace real para complementar el analisis automatico del repositorio.',
+          nextAction:
+            'Comparte un stacktrace reproducible o amplía el contexto del repositorio antes de priorizar correcciones.',
           confidence: 35,
         },
       ],
@@ -218,12 +251,15 @@ export class AnalyzeService {
         priority: 'MEDIUM',
         solution:
           'Amplia el contexto analizado del repositorio o agrega un stacktrace para aumentar la precision del diagnostico.',
+        nextAction:
+          'Selecciona un stacktrace real o incorpora mas archivos relevantes al contexto antes de decidir la prioridad.',
         confidence: 30,
       };
     }
 
     return {
-      problem: 'No se encontro un hallazgo concluyente a partir del error reportado',
+      problem:
+        'No se encontro un hallazgo concluyente a partir del error reportado',
       cause:
         'La informacion entregada no permitio reconstruir una causa tecnica concreta con suficiente confianza.',
       impact:
@@ -231,6 +267,8 @@ export class AnalyzeService {
       priority: 'MEDIUM',
       solution:
         'Comparte un stacktrace completo o codigo relacionado para mejorar el analisis.',
+      nextAction:
+        'Adjunta el stacktrace completo y los pasos de reproduccion del error antes de abrir una tarea de correccion.',
       confidence: 30,
     };
   }
@@ -246,8 +284,9 @@ export class AnalyzeService {
           impact:
             'No se puede hacer un analisis tecnico del codigo porque actualmente no hay codigo que inspeccionar.',
           priority: 'LOW',
-          solution:
-            `Sube contenido al repositorio ${repositoryUrl} o proporciona un stacktrace real si quieres analizar un error concreto.`,
+          solution: `Sube contenido al repositorio ${repositoryUrl} o proporciona un stacktrace real si quieres analizar un error concreto.`,
+          nextAction:
+            'Añade el codigo fuente al repositorio o envía un stacktrace real para poder generar un diagnostico accionable.',
           confidence: 98,
         },
       ],
@@ -273,7 +312,9 @@ export class AnalyzeService {
       : repository;
 
     return {
-      id: `${owner}-${normalizedRepository}`.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+      id: `${owner}-${normalizedRepository}`
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '-'),
       name: `${owner}/${normalizedRepository}`,
       url,
     };
@@ -286,7 +327,9 @@ export class AnalyzeService {
         return ['repository', 'custom'];
       }
 
-      const parts = parsed.pathname.split('/').filter((segment) => segment.length > 0);
+      const parts = parsed.pathname
+        .split('/')
+        .filter((segment) => segment.length > 0);
       if (parts.length < 2) {
         return ['repository', 'custom'];
       }
@@ -299,7 +342,9 @@ export class AnalyzeService {
 
   private buildIssueTitle(problem: string): string {
     const normalized = problem.replace(/\s+/g, ' ').trim();
-    const title = normalized.startsWith('[') ? normalized : `[Dev Decision Engine] ${normalized}`;
+    const title = normalized.startsWith('[')
+      ? normalized
+      : `[Dev Decision Engine] ${normalized}`;
 
     if (title.length <= 90) {
       return title;
@@ -308,7 +353,10 @@ export class AnalyzeService {
     return `${title.slice(0, 87).trimEnd()}...`;
   }
 
-  private normalizeIssueField(value: string | undefined, fallback: string): string {
+  private normalizeIssueField(
+    value: string | undefined,
+    fallback: string,
+  ): string {
     const normalized = value?.trim();
     return normalized && normalized.length > 0 ? normalized : fallback;
   }

@@ -140,9 +140,10 @@ export class RepositoryContextService {
     }
   }
 
-  private async fetchRepositoryMetadata(
-    coordinates: { owner: string; repository: string },
-  ): Promise<GithubRepositoryResponse> {
+  private async fetchRepositoryMetadata(coordinates: {
+    owner: string;
+    repository: string;
+  }): Promise<GithubRepositoryResponse> {
     return this.fetchGithubJson<GithubRepositoryResponse>(
       `https://api.github.com/repos/${coordinates.owner}/${coordinates.repository}`,
     );
@@ -187,7 +188,10 @@ export class RepositoryContextService {
     branch: string,
   ): Promise<string> {
     const response = await this.fetchGithubJson<GithubContentItem>(
-      `https://api.github.com/repos/${coordinates.owner}/${coordinates.repository}/contents/${path.split('/').map((segment) => encodeURIComponent(segment)).join('/')}?ref=${encodeURIComponent(branch)}`,
+      `https://api.github.com/repos/${coordinates.owner}/${coordinates.repository}/contents/${path
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/')}?ref=${encodeURIComponent(branch)}`,
     );
 
     if (response.encoding !== 'base64' || !response.content) {
@@ -216,13 +220,16 @@ export class RepositoryContextService {
     };
   }
 
-  private selectRepositoryFiles(tree: GithubTreeItem[]): Array<{ path: string }> {
+  private selectRepositoryFiles(
+    tree: GithubTreeItem[],
+  ): Array<{ path: string }> {
     return tree
       .filter(this.hasFilePath)
       .filter((item) => this.isCandidateFile(item.path, item.size))
       .sort((left, right) => {
         const scoreDifference =
-          this.scoreRepositoryPath(right.path) - this.scoreRepositoryPath(left.path);
+          this.scoreRepositoryPath(right.path) -
+          this.scoreRepositoryPath(left.path);
 
         if (scoreDifference !== 0) {
           return scoreDifference;
@@ -241,7 +248,11 @@ export class RepositoryContextService {
       return false;
     }
 
-    if (this.excludedPathFragments.some((fragment) => normalized.includes(fragment))) {
+    if (
+      this.excludedPathFragments.some((fragment) =>
+        normalized.includes(fragment),
+      )
+    ) {
       return false;
     }
 
@@ -337,6 +348,7 @@ export class RepositoryContextService {
   }
 
   private hasFilePath(
+    this: void,
     item: GithubTreeItem,
   ): item is GithubTreeItem & { path: string; type: 'blob' } {
     return item.type === 'blob' && typeof item.path === 'string';

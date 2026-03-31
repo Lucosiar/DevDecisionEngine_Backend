@@ -6,6 +6,7 @@ export interface AnalyzeFinding {
   impact: string;
   priority: AnalyzePriority;
   solution: string;
+  nextAction: string;
   confidence: number;
 }
 

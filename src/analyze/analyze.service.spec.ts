@@ -6,12 +6,16 @@ import { RepositoryContextService } from './repository-context.service';
 describe('AnalyzeService', () => {
   let service: AnalyzeService;
   let aiService: {
-    isConfigured: jest.Mock<boolean, []>;
-    analyzeError: jest.Mock;
+    isConfigured: jest.MockedFunction<() => boolean>;
+    analyzeError: jest.MockedFunction<AiService['analyzeError']>;
   };
   let repositoryContextService: {
-    isRepositoryEmpty: jest.Mock<Promise<boolean>, [string]>;
-    buildAnalysisContext: jest.Mock<Promise<string>, [string]>;
+    isRepositoryEmpty: jest.MockedFunction<
+      RepositoryContextService['isRepositoryEmpty']
+    >;
+    buildAnalysisContext: jest.MockedFunction<
+      RepositoryContextService['buildAnalysisContext']
+    >;
   };
 
   const aiFinding = {
@@ -20,6 +24,7 @@ describe('AnalyzeService', () => {
     impact: 'impact',
     priority: 'HIGH' as const,
     solution: 'solution',
+    nextAction: 'next action',
     confidence: 93,
   };
   const aiResponse = {
@@ -29,13 +34,19 @@ describe('AnalyzeService', () => {
 
   beforeEach(async () => {
     aiService = {
-      isConfigured: jest.fn().mockReturnValue(true),
-      analyzeError: jest.fn().mockResolvedValue(aiResponse),
+      isConfigured: jest.fn<() => boolean>().mockReturnValue(true),
+      analyzeError: jest
+        .fn<AiService['analyzeError']>()
+        .mockResolvedValue(aiResponse),
     };
 
     repositoryContextService = {
-      isRepositoryEmpty: jest.fn().mockResolvedValue(false),
-      buildAnalysisContext: jest.fn().mockResolvedValue('repo context'),
+      isRepositoryEmpty: jest
+        .fn<RepositoryContextService['isRepositoryEmpty']>()
+        .mockResolvedValue(false),
+      buildAnalysisContext: jest
+        .fn<RepositoryContextService['buildAnalysisContext']>()
+        .mockResolvedValue('repo context'),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -121,8 +132,11 @@ describe('AnalyzeService', () => {
       priority: 'LOW',
       solution:
         'Sube contenido al repositorio https://github.com/example/empty-repo.git o proporciona un stacktrace real si quieres analizar un error concreto.',
+      nextAction:
+        'Añade el codigo fuente al repositorio o envía un stacktrace real para poder generar un diagnostico accionable.',
       confidence: 98,
-      summary: 'El repositorio seleccionado no contiene codigo para inspeccionar.',
+      summary:
+        'El repositorio seleccionado no contiene codigo para inspeccionar.',
       findings: [
         {
           problem: 'El repositorio esta vacio',
@@ -133,6 +147,8 @@ describe('AnalyzeService', () => {
           priority: 'LOW',
           solution:
             'Sube contenido al repositorio https://github.com/example/empty-repo.git o proporciona un stacktrace real si quieres analizar un error concreto.',
+          nextAction:
+            'Añade el codigo fuente al repositorio o envía un stacktrace real para poder generar un diagnostico accionable.',
           confidence: 98,
         },
       ],
@@ -151,6 +167,7 @@ describe('AnalyzeService', () => {
           impact: 'second impact',
           priority: 'MEDIUM' as const,
           solution: 'second solution',
+          nextAction: 'second next action',
           confidence: 81,
         },
       ],
@@ -173,6 +190,7 @@ describe('AnalyzeService', () => {
     expect(result.findings).toHaveLength(2);
     expect(result.mode).toBe('repository');
     expect(result.problem).toBe('problem');
+    expect(result.nextAction).toBe('next action');
   });
 
   it('returns fallback when OpenAI is not configured', async () => {
@@ -184,6 +202,9 @@ describe('AnalyzeService', () => {
     expect(result.mode).toBe('repository');
     expect(result.priority).toBe('MEDIUM');
     expect(result.confidence).toBe(35);
+    expect(result.nextAction).toBe(
+      'Comparte un stacktrace reproducible o amplía el contexto del repositorio antes de priorizar correcciones.',
+    );
   });
 
   it('returns fallback when AI analysis fails', async () => {
@@ -194,6 +215,9 @@ describe('AnalyzeService', () => {
     expect(result.mode).toBe('repository');
     expect(result.priority).toBe('MEDIUM');
     expect(result.confidence).toBe(35);
+    expect(result.nextAction).toBe(
+      'Comparte un stacktrace reproducible o amplía el contexto del repositorio antes de priorizar correcciones.',
+    );
   });
 
   it('builds issue content', () => {
@@ -201,9 +225,12 @@ describe('AnalyzeService', () => {
       problem: 'Null pointer in dashboard',
       cause: 'Missing guard clause',
       solution: 'Validate the payload before rendering',
+      nextAction:
+        'Add a regression test that covers the null payload before fixing the render path',
     });
 
     expect(result.title).toContain('Null pointer in dashboard');
     expect(result.description).toContain('## Problem');
+    expect(result.description).toContain('## Next Action');
   });
 });

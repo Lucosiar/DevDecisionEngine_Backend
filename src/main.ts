@@ -30,7 +30,7 @@ async function bootstrap() {
 
   await app.listen(process.env.PORT ?? 3000);
 }
-bootstrap();
+void bootstrap();
 
 function loadEnvFile(): void {
   const envPath = join(process.cwd(), '.env');

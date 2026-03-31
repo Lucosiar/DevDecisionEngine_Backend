@@ -17,6 +17,7 @@ describe('AnalyzeController', () => {
     impact: 'impact',
     priority: 'HIGH',
     solution: 'solution',
+    nextAction: 'next action',
     confidence: 91,
   };
   const mockResponse: AnalyzeResponse = {
@@ -99,6 +100,7 @@ describe('AnalyzeController', () => {
       problem: 'problem',
       cause: 'cause',
       solution: 'solution',
+      nextAction: 'next action',
     };
 
     const response = controller.generateIssue(payload);

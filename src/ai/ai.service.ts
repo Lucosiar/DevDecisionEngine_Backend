@@ -89,6 +89,7 @@ export class AiService {
                         enum: ['HIGH', 'MEDIUM', 'LOW'],
                       },
                       solution: { type: 'string' },
+                      nextAction: { type: 'string' },
                       confidence: { type: 'number' },
                     },
                     required: [
@@ -97,6 +98,7 @@ export class AiService {
                       'impact',
                       'priority',
                       'solution',
+                      'nextAction',
                       'confidence',
                     ],
                   },
@@ -111,7 +113,9 @@ export class AiService {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`OpenAI request failed (${response.status}): ${errorText}`);
+      throw new Error(
+        `OpenAI request failed (${response.status}): ${errorText}`,
+      );
     }
 
     const payload = (await response.json()) as OpenAiChatCompletionResponse;
@@ -140,6 +144,7 @@ export class AiService {
       '- impact',
       '- priority (HIGH, MEDIUM, LOW)',
       '- solution',
+      '- nextAction',
       '- confidence (0-100)',
       '',
       'Reglas:',
@@ -150,6 +155,7 @@ export class AiService {
       '- No inventes hallazgos. Si solo ves 3 problemas fiables, devuelve 3.',
       '- Prioriza fallos que rompen ejecucion, producen excepciones o resultados incorrectos.',
       '- En solution describe la correccion tecnica directa.',
+      '- En nextAction describe el siguiente paso inmediato y ejecutable para el equipo.',
     ];
 
     if (params.error) {
@@ -267,6 +273,10 @@ export class AiService {
         solution: this.readString(
           finding.solution,
           `findings[${index}].solution`,
+        ),
+        nextAction: this.readString(
+          finding.nextAction,
+          `findings[${index}].nextAction`,
         ),
         confidence: this.readConfidence(finding.confidence),
       };
